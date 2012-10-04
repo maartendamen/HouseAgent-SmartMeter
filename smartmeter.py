@@ -5,6 +5,7 @@ from serial import PARITY_EVEN, SEVENBITS
 from houseagent.plugins import pluginapi
 import ConfigParser
 import os
+import traceback
 
 class SmartMeterReadings(object):
     '''
@@ -46,23 +47,24 @@ class SmartMeterProtocol(basic.LineReceiver):
     def lineReceived(self, line):
         
         if line.startswith('!'):
-            readings = None            
             try:
                 readings = self._parse_telegram(self._telegram)
+            
+                values = {'Energy usage normal tariff (kWh)': readings.normal_tariff, 
+                          'Energy usage low tariff (kWh)': readings.low_tariff,
+                          'Actual energy usage (W)': readings.actual_usage,
+                          'Total gas usage (M3)': readings.gas_usage}
+                
+                print readings
+                
+                for connection in self._wrapper.connections:
+                    connection.value_update(1, values)                     
+                
+                self._telegram = []
+
             except Exception, exp:
-                pass
-            
-            values = {'Energy usage normal tariff (kWh)': readings.normal_tariff, 
-                      'Energy usage low tariff (kWh)': readings.low_tariff,
-                      'Actual energy usage (W)': readings.actual_usage,
-                      'Total gas usage (M3)': readings.gas_usage}
-            
-            print readings
-            
-            for connection in self._wrapper.connections:
-                connection.value_update(1, values)                     
-            
-            self._telegram = []
+                print traceback.format_exc()
+
         else:
             self._telegram.append(line)
             
@@ -76,22 +78,32 @@ class SmartMeterProtocol(basic.LineReceiver):
         @param telegram: the telegram to parse
         '''
         
-        # consumption
-        low_tariff = float(telegram[3][10:19])
-        normal_tariff = float(telegram[4][10:19])
+        low_tariff = 0
+        normal_tariff = 0
+        low_tariff_produced = 0
+        normal_tariff_produced = 0
+        actual_usage = 0
+        gas_usage = 0
+        next_is_gas = False
         
-        # production
-        low_tariff_produced = float(telegram[5][10:19])
-        normal_tariff_produced = float(telegram[6][10:19])
-        
-        # Actual usage
-        actual_usage = int(float(telegram[8][10:17]) * 1000.0)
-        
-        # Gas usage
-        if len(telegram) > 17:
-            gas_usage = float(telegram[17][1:10])
-        else:
-            gas_usage = 0
+        for tg in telegram:
+            print tg
+            if tg.startswith('1-0:1.8.1'):
+                low_tariff = float(tg[tg.index('(')+1:tg.index('*')])
+            if tg.startswith('1-0:1.8.2'):
+                normal_tariff = float(tg[tg.index('(')+1:tg.index('*')])
+            if tg.startswith('1-0:2.8.1'):
+                low_tariff_produced = float(tg[tg.index('(')+1:tg.index('*')])
+            if tg.startswith('1-0:2.8.2'):
+                normal_tariff_produced = float(tg[tg.index('(')+1:tg.index('*')])
+            if tg.startswith('1-0:1.7.0'):
+                actual_usage = float(tg[tg.index('(')+1:tg.index('*')]) * 1000.0
+
+            if next_is_gas and tg.startswith('('):
+                gas_usage = float(tg[tg.index('(')+1:tg.index(')')])
+            next_is_gas = False
+            if tg.startswith('0-1:24.3.0'):
+                next_is_gas = True
         
         return SmartMeterReadings(low_tariff, normal_tariff, low_tariff_produced, normal_tariff_produced, actual_usage, gas_usage)
 
