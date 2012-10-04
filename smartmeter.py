@@ -88,7 +88,10 @@ class SmartMeterProtocol(basic.LineReceiver):
         actual_usage = int(float(telegram[8][10:17]) * 1000.0)
         
         # Gas usage
-        gas_usage = float(telegram[17][1:10])
+        if len(telegram) > 17:
+            gas_usage = float(telegram[17][1:10])
+        else:
+            gas_usage = 0
         
         return SmartMeterReadings(low_tariff, normal_tariff, low_tariff_produced, normal_tariff_produced, actual_usage, gas_usage)
 
